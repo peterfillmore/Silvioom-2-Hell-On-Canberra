@@ -1,0 +1,521 @@
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+//#include "driver/gpio.h"
+#include "input.h"
+//#include "nimble_hid.h"
+//#include "hid_ev.h"
+//#include "nvs_flash.h"
+//#include "driver/touch_sens.h"
+#include "esp_check.h"
+//#include "touch_sens_example_config.h"
+#include "touch_element/touch_button.h"
+#include "touch_element/touch_slider.h"
+
+#define TOUCH_BUTTON_NUM 1
+
+QueueHandle_t s_evq;
+
+static const char *TAG = "Doom TouchWheel";
+
+static touch_button_handle_t button_handle[TOUCH_BUTTON_NUM];
+
+//static const char *TAG = "Touch Slider Example";
+
+#define TOUCH_SLIDER_CHANNEL_NUM    3 
+
+static touch_slider_handle_t slider_handle; //Touch slider handle
+
+int slidedirection; //-1 left, 0 static, 1 right
+uint8_t previousposition;
+
+static const touch_pad_t slider_channel_array[TOUCH_SLIDER_CHANNEL_NUM] = { //Touch slider channels array
+    TOUCH_PAD_NUM1,
+    TOUCH_PAD_NUM2,
+    TOUCH_PAD_NUM3,
+};
+
+static const touch_pad_t button_channel_array[TOUCH_BUTTON_NUM] = {
+    //TOUCH_PAD_NUM1,
+    //TOUCH_PAD_NUM2,
+    //TOUCH_PAD_NUM3,
+    TOUCH_PAD_NUM4,
+};
+
+/* Touch buttons channel sensitivity array */
+static const float button_channel_sens_array[TOUCH_BUTTON_NUM] = {
+    //0.1F,
+    //0.1F,
+    //0.1F,
+    0.1F,
+};
+
+static const float slider_channel_sens_array[TOUCH_SLIDER_CHANNEL_NUM] = {  //Touch slider channels sensitivity array
+    1.0F,
+    1.0F,
+    1.0F,
+    //0.250F,
+    //0.257F,
+};
+
+//static void button_handler_task(void *arg)
+//{
+//    (void) arg; //Unused
+//    touch_elem_message_t element_message;
+//    while (1) {
+//        /* Waiting for touch element messages */
+//        touch_element_message_receive(&element_message, portMAX_DELAY);
+//        if (element_message.element_type != TOUCH_ELEM_TYPE_BUTTON) {
+//            continue;
+//        }
+//        /* Decode message */
+//        const touch_button_message_t *button_message = touch_button_get_message(&element_message);
+//        if (button_message->event == TOUCH_BUTTON_EVT_ON_PRESS) {
+//            ESP_LOGI(TAG, "Button[%d] Press", (int)element_message.arg);
+//        } else if (button_message->event == TOUCH_BUTTON_EVT_ON_RELEASE) {
+//            ESP_LOGI(TAG, "Button[%d] Release", (int)element_message.arg);
+//        } else if (button_message->event == TOUCH_BUTTON_EVT_ON_LONGPRESS) {
+//            ESP_LOGI(TAG, "Button[%d] LongPress", (int)element_message.arg);
+//        }
+//    }
+//}
+
+static void button_handler(touch_button_handle_t out_handle, touch_button_message_t *out_message, void *arg)
+{
+    (void) out_handle; //Unused
+    ev_t newevent;
+    ev_t newevent2;
+    if (out_message->event == TOUCH_BUTTON_EVT_ON_PRESS) {
+      //KEYD_LEFT, KEYD_DOWN, KEYD_RIGHT, KEYD_UP, KEYD_A, KEYD_B, L, R, START, SELECT
+	newevent.type = EVENT_KEY_START_DOWN;	
+		xQueueSend(s_evq, &newevent, 0);
+	
+	//switch ((int)arg){
+	//    case 1:
+	//	newevent.type = EVENT_KEY_START_DOWN;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	break;
+	//    case 2:
+	//	newevent.type = EVENT_KEY_A_DOWN;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	break;
+	//    case 3:
+	//	newevent.type = EVENT_KEY_B_DOWN;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	break;
+	//    case 4:
+	//	newevent.type = EVENT_KEY_SELECT_DOWN;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	break;
+
+	//}    ESP_LOGI(TAG, "Button[%d] Press", (int)arg);
+    } else if (out_message->event == TOUCH_BUTTON_EVT_ON_RELEASE) {
+   	newevent.type = EVENT_KEY_START_UP;	
+	xQueueSend(s_evq, &newevent, 0);
+	//switch ((int)arg){
+	//    case 1:
+	//	newevent.type = EVENT_KEY_START_UP;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	break;
+	//    case 2:
+	//	newevent.type = EVENT_KEY_A_UP;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	break;
+	//    case 3:
+	//	newevent.type = EVENT_KEY_B_UP;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	break;
+	//    case 4:
+	//	newevent.type = EVENT_KEY_SELECT_UP;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	break;
+
+	//}
+	    ESP_LOGI(TAG, "Button[%d] Release", (int)arg);
+    } else if (out_message->event == TOUCH_BUTTON_EVT_ON_LONGPRESS) {
+        	newevent.type = EVENT_KEY_A_DOWN;	
+		xQueueSend(s_evq, &newevent, 0);
+        	newevent2.type = EVENT_KEY_A_UP;	
+		xQueueSend(s_evq, &newevent2, 0);
+ESP_LOGI(TAG, "Button[%d] LongPress", (int)arg);
+    }
+}
+
+void slider_handler(touch_slider_handle_t out_handle, touch_slider_message_t *out_message, void *arg)
+{
+    (void) arg; //Unused
+    ev_t newevent;
+    ev_t newevent2;
+    ev_t newevent3;
+    ev_t newevent4;
+    if (out_handle != slider_handle) {
+        return;
+    }
+    if (out_message->event == TOUCH_SLIDER_EVT_ON_PRESS) {
+       	switch(out_message->position){
+       		case 2: //press up to fire 
+			newevent.type = EVENT_KEY_A_DOWN;	
+			xQueueSend(s_evq, &newevent, 0);
+			vTaskDelay(pdMS_TO_TICKS(30));
+			newevent2.type = EVENT_KEY_A_UP;	
+			xQueueSend(s_evq, &newevent2, 0);
+			ESP_LOGI(TAG, "Slider A");
+			break;
+		case 4: //press down to use
+			newevent.type = EVENT_KEY_B_DOWN;	
+			xQueueSend(s_evq, &newevent, 0);
+			vTaskDelay(pdMS_TO_TICKS(30));
+			newevent2.type = EVENT_KEY_B_UP;	
+			xQueueSend(s_evq, &newevent2, 0);
+			ESP_LOGI(TAG, "Slider B");
+			break;
+	} 
+	//if(out_message->position > 70 && out_message->position < 90) { //up
+	//	newevent.type = EVENT_KEY_A_DOWN;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	vTaskDelay(pdMS_TO_TICKS(15));
+	//	newevent2.type = EVENT_KEY_A_UP;	
+	//	xQueueSend(s_evq, &newevent2, 0);
+	//	ESP_LOGI(TAG, "Slider Press, position: KEY_A");
+	//}
+	//else if (out_message->position < 190 && out_message->position > 170){
+	//	newevent.type = EVENT_KEY_B_DOWN;	
+	//	xQueueSend(s_evq, &newevent, 0);
+	//	vTaskDelay(pdMS_TO_TICKS(15));
+	//	newevent2.type = EVENT_KEY_B_UP;	
+	//	xQueueSend(s_evq, &newevent2, 0);
+	//	ESP_LOGI(TAG, "Slider Press, position: KEY_B");
+	//}
+	ESP_LOGI(TAG, "Slider Press, position: %"PRIu32, out_message->position);
+    } else if (out_message->event == TOUCH_SLIDER_EVT_ON_RELEASE) {
+	 	
+	 previousposition = out_message->position;
+
+	    //       if(out_message->position > 20 && out_message->position < 46) { //up
+//		newevent.type = EVENT_KEY_R_UP;	
+//		xQueueSend(s_evq, &newevent, 0);
+//	}
+//        else if (out_message->position < 85 && out_message->position > 50){
+//		newevent.type = EVENT_KEY_L_UP;	
+//		xQueueSend(s_evq, &newevent, 0);
+//	} 
+	    ESP_LOGI(TAG, "Slider Release, position: %"PRIu32, out_message->position);
+    } else if (out_message->event == TOUCH_SLIDER_EVT_ON_CALCULATION) {
+       	//if((out_message->position >= previousposition + 20) && (out_message->position <= previousposition - 20)) {
+       	switch(out_message->position){
+		case 2: 
+			slidedirection=0;	
+			//click up	
+			newevent.type = EVENT_KEY_UP_DOWN;	
+			xQueueSend(s_evq, &newevent, 0);
+			vTaskDelay(pdMS_TO_TICKS(30));
+			newevent2.type = EVENT_KEY_UP_UP;	
+			xQueueSend(s_evq, &newevent2, 0);
+			ESP_LOGI(TAG, "Slider UP");
+			break;
+
+		case 0: 
+			slidedirection=1;
+			//click right
+			newevent.type = EVENT_KEY_RIGHT_DOWN;	
+			xQueueSend(s_evq, &newevent, 0);
+			vTaskDelay(pdMS_TO_TICKS(30));
+			newevent2.type = EVENT_KEY_RIGHT_UP;	
+			xQueueSend(s_evq, &newevent2, 0);
+			ESP_LOGI(TAG, "Slider RIGHT");
+			break;
+		case 5:
+			slidedirection=-1;
+			//click left
+			newevent.type = EVENT_KEY_LEFT_DOWN;	
+			xQueueSend(s_evq, &newevent, 0);
+			vTaskDelay(pdMS_TO_TICKS(30));
+			newevent2.type = EVENT_KEY_LEFT_UP;	
+			xQueueSend(s_evq, &newevent2, 0);
+			ESP_LOGI(TAG, "Slider LEFT");
+			break;
+		case 6:
+			slidedirection=-1;
+			//click left
+			newevent.type = EVENT_KEY_DOWN_DOWN;	
+			xQueueSend(s_evq, &newevent, 0);
+			vTaskDelay(pdMS_TO_TICKS(30));
+			newevent2.type = EVENT_KEY_DOWN_UP;	
+			xQueueSend(s_evq, &newevent2, 0);
+			ESP_LOGI(TAG, "Slider DOWN");
+			break;
+		case 1:
+			newevent.type = EVENT_KEY_UP_DOWN;	
+			newevent2.type = EVENT_KEY_RIGHT_DOWN;	
+			xQueueSend(s_evq, &newevent, 0);
+			xQueueSend(s_evq, &newevent2, 0);
+			vTaskDelay(pdMS_TO_TICKS(30));
+			newevent3.type = EVENT_KEY_UP_UP;	
+			newevent4.type = EVENT_KEY_RIGHT_UP;	
+			xQueueSend(s_evq, &newevent3, 0);
+			xQueueSend(s_evq, &newevent4, 0);
+			ESP_LOGI(TAG, "Slider UP RIGHT");
+			break;
+		case 4:
+			newevent.type = EVENT_KEY_UP_DOWN;	
+			newevent2.type = EVENT_KEY_LEFT_DOWN;	
+			xQueueSend(s_evq, &newevent, 0);
+			xQueueSend(s_evq, &newevent2, 0);
+			vTaskDelay(pdMS_TO_TICKS(30));
+			newevent3.type = EVENT_KEY_UP_UP;	
+			newevent4.type = EVENT_KEY_LEFT_UP;	
+			xQueueSend(s_evq, &newevent3, 0);
+			xQueueSend(s_evq, &newevent4, 0);
+			ESP_LOGI(TAG, "Slider UP RIGHT");
+			break;
+	}	
+	previousposition = out_message->position;
+	ESP_LOGI(TAG, "Slider Calculate, position: %"PRIu32, out_message->position);
+	}	 
+//	else if(out_message->position == 13) { //upright
+//		newevent.type = EVENT_KEY_UP_DOWN;	
+//		xQueueSend(s_evq, &newevent, 0);
+//		newevent2.type = EVENT_KEY_RIGHT_DOWN;	
+//		xQueueSend(s_evq, &newevent2, 0);
+//		vTaskDelay(pdMS_TO_TICKS(25));
+//		newevent3.type = EVENT_KEY_UP_UP;	
+//		newevent4.type = EVENT_KEY_RIGHT_UP;	
+//		xQueueSend(s_evq, &newevent3, 0);
+//		xQueueSend(s_evq, &newevent4, 0);
+//}
+//	else if(out_message->position == 52 ) { //upleft
+//		newevent.type = EVENT_KEY_UP_DOWN;	
+//		xQueueSend(s_evq, &newevent, 0);
+//		newevent2.type = EVENT_KEY_LEFT_DOWN;	
+//		xQueueSend(s_evq, &newevent2, 0);
+//		vTaskDelay(pdMS_TO_TICKS(25));
+//		newevent3.type = EVENT_KEY_UP_UP;	
+//		newevent4.type = EVENT_KEY_LEFT_UP;	
+//		xQueueSend(s_evq, &newevent3, 0);
+//		xQueueSend(s_evq, &newevent4, 0);
+//}
+//	else if(out_message->position == 85) { //downleft
+//		newevent.type = EVENT_KEY_DOWN_DOWN;	
+//		xQueueSend(s_evq, &newevent, 0);
+//		newevent2.type = EVENT_KEY_LEFT_DOWN;	
+//		xQueueSend(s_evq, &newevent2, 0);
+//		vTaskDelay(pdMS_TO_TICKS(25));
+//		newevent3.type = EVENT_KEY_DOWN_UP;	
+//		newevent4.type = EVENT_KEY_LEFT_UP;	
+//		xQueueSend(s_evq, &newevent3, 0);
+//		xQueueSend(s_evq, &newevent4, 0);
+//}
+//	if(out_message->position == 35) { //downright
+//		newevent.type = EVENT_KEY_DOWN_DOWN;	
+//		newevent2.type = EVENT_KEY_RIGHT_DOWN;	
+//		xQueueSend(s_evq, &newevent, 0);
+//		xQueueSend(s_evq, &newevent2, 0);
+//		vTaskDelay(pdMS_TO_TICKS(25));
+//		newevent3.type = EVENT_KEY_DOWN_UP;	
+//		newevent4.type = EVENT_KEY_RIGHT_UP;	
+//		xQueueSend(s_evq, &newevent3, 0);
+//		xQueueSend(s_evq, &newevent4, 0);
+//}
+}
+
+//QueueHandle_t touch_evt_queue;
+
+//static void button_handler(touch_button_handle_t out_handle, touch_button_message_t *out_message, void *arg)
+//{
+//    (void) out_handle; //Unused
+//    //if (out_message->event == TOUCH_BUTTON_EVT_ON_PRESS) {
+//    //    ESP_LOGI(TAG, "Button[%d] Press", (int)arg);
+//    //} else if (out_message->event == TOUCH_BUTTON_EVT_ON_RELEASE) {
+//    //    ESP_LOGI(TAG, "Button[%d] Release", (int)arg);
+//    //} else if (out_message->event == TOUCH_BUTTON_EVT_ON_LONGPRESS) {
+//    //    ESP_LOGI(TAG, "Button[%d] LongPress", (int)arg);
+//    //}
+//}
+
+//static void hid_cb(hid_ev_t *ev) {
+//	xQueueSend(s_evq, ev, 0);
+//}
+
+//static void IRAM_ATTR gpio_isr_handler(void* arg)
+//{
+//    uint32_t gpio_num = (uint32_t) arg;
+//    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+//}
+//static void gpio_task_example(void* arg)
+//{
+//    uint32_t io_num;
+//    for(;;) {
+//        if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
+//            printf("GPIO[%"PRIu32"] intr, val: %d\n", io_num, gpio_get_level(io_num));
+//        }
+//    }
+//}
+//#define TOUCH_BUTTON_NUM    1 
+
+/* Touch buttons handle */
+//static touch_button_handle_t button_handle[TOUCH_BUTTON_NUM];
+///* Touch buttons channel array */
+//static const touch_pad_t button_channel_array[TOUCH_BUTTON_NUM] = {
+//    //TOUCH_PAD_NUM1,
+//    //TOUCH_PAD_NUM2,
+//    //TOUCH_PAD_NUM3,
+//    TOUCH_PAD_NUM4,
+//    //TOUCH_PAD_NUM5,
+//    //TOUCH_PAD_NUM6,
+//    //TOUCH_PAD_NUM7,
+//    //TOUCH_PAD_NUM8,
+//    //TOUCH_PAD_NUM9,
+//    //TOUCH_PAD_NUM10,
+//    //TOUCH_PAD_NUM11,
+//    //TOUCH_PAD_NUM12,
+//    //TOUCH_PAD_NUM13,
+//    //TOUCH_PAD_NUM14,
+//};
+//static const float button_channel_sens_array[TOUCH_BUTTON_NUM] = {
+//    0.1F,
+//}
+
+
+void input_init() {
+    /* Initialize Touch Element library */
+    touch_elem_global_config_t global_config = TOUCH_ELEM_GLOBAL_DEFAULT_CONFIG();
+    ESP_ERROR_CHECK(touch_element_install(&global_config));
+    ESP_LOGI(TAG, "Touch element library installed");
+
+    touch_button_global_config_t button_global_config = TOUCH_BUTTON_GLOBAL_DEFAULT_CONFIG();
+    ESP_ERROR_CHECK(touch_button_install(&button_global_config));
+    ESP_LOGI(TAG, "Touch button installed");
+
+    touch_slider_global_config_t slider_global_config = TOUCH_SLIDER_GLOBAL_DEFAULT_CONFIG();
+    ESP_ERROR_CHECK(touch_slider_install(&slider_global_config));
+    ESP_LOGI(TAG, "Touch slider installed");
+
+     /* Create Touch slider */
+    touch_slider_config_t slider_config = {
+        .channel_array = slider_channel_array,
+        .sensitivity_array = slider_channel_sens_array,
+        .channel_num = (sizeof(slider_channel_array) / sizeof(slider_channel_array[0])),
+        .position_range = 8 
+    };
+    ESP_ERROR_CHECK(touch_slider_create(&slider_config, &slider_handle));
+    /* Subscribe touch slider events (On Press, On Release, On Calculation) */
+    ESP_ERROR_CHECK(touch_slider_subscribe_event(slider_handle,
+                                                 TOUCH_ELEM_EVENT_ON_PRESS | TOUCH_ELEM_EVENT_ON_RELEASE | TOUCH_ELEM_EVENT_ON_CALCULATION, NULL));
+
+
+    ESP_ERROR_CHECK(touch_slider_set_dispatch_method(slider_handle, TOUCH_ELEM_DISP_CALLBACK));
+    /* Register a handler function to handle event messages */
+    ESP_ERROR_CHECK(touch_slider_set_callback(slider_handle, slider_handler));
+
+    for (int i = 0; i < TOUCH_BUTTON_NUM; i++) {
+        touch_button_config_t button_config = {
+            .channel_num = button_channel_array[i],
+            .channel_sens = button_channel_sens_array[i]
+        };
+        /* Create Touch buttons */
+        ESP_ERROR_CHECK(touch_button_create(&button_config, &button_handle[i]));
+        /* Subscribe touch button events (On Press, On Release, On LongPress) */
+        ESP_ERROR_CHECK(touch_button_subscribe_event(button_handle[i],
+                                                     TOUCH_ELEM_EVENT_ON_PRESS | TOUCH_ELEM_EVENT_ON_RELEASE | TOUCH_ELEM_EVENT_ON_LONGPRESS,
+                                                     (void *)button_channel_array[i]));
+        /* Set EVENT as the dispatch method */
+        //ESP_ERROR_CHECK(touch_button_set_dispatch_method(button_handle[i], TOUCH_ELEM_DISP_EVENT));
+	
+	 /* Set EVENT as the dispatch method */
+        ESP_ERROR_CHECK(touch_button_set_dispatch_method(button_handle[i], TOUCH_ELEM_DISP_CALLBACK));
+        /* Register a handler function to handle event messages */
+        ESP_ERROR_CHECK(touch_button_set_callback(button_handle[i], button_handler));
+	
+	/* Set LongPress event trigger threshold time */
+	        ESP_ERROR_CHECK(touch_button_set_longpress(button_handle[i], 500));
+	    }
+	    ESP_LOGI(TAG, "Touch buttons created");
+	
+	    /* Create a handler task to handle event messages */
+	    //xTaskCreate(&button_handler_task, "button_handler_task", 4 * 1024, NULL, 5, NULL);
+	    touch_element_start();
+	    ESP_LOGI(TAG, "Touch element library start");
+
+    	    s_evq=xQueueCreate(32, sizeof(ev_t));
+
+	//zero-initialize the config structure.
+    //gpio_config_t io_conf = {};
+    //disable interrupt
+    //io_conf.intr_type = GPIO_INTR_DISABLE;
+    //set as output mode
+    //io_conf.mode = GPIO_MODE_OUTPUT;
+    //bit mask of the pins that you want to set,e.g.GPIO18/19
+    //io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    //disable pull-down mode
+    //io_conf.pull_down_en = 0;
+    //disable pull-up mode
+    //io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    //gpio_config(&io_conf);
+    //interrupt of rising edge
+    //io_conf.intr_type = GPIO_INTR_POSEDGE;
+    //bit mask of the pins, use GPIO4/5 here
+    //io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
+    //set as input mode
+    //io_conf.mode = GPIO_MODE_INPUT;
+    //enable pull-up mode
+    //io_conf.pull_up_en = 1;
+    //gpio_config(&io_conf);
+
+    //touch_evt_queue = xQueueCreate(10, sizeof(uint32_t));
+    ///* Initialize Touch Element library */
+    //touch_elem_global_config_t global_config = TOUCH_ELEM_GLOBAL_DEFAULT_CONFIG();
+    //ESP_ERROR_CHECK(touch_element_install(&global_config));
+    //ESP_LOGI(TAG, "Touch element library installed");
+
+    //touch_button_global_config_t button_global_config = TOUCH_BUTTON_GLOBAL_DEFAULT_CONFIG();
+    //ESP_ERROR_CHECK(touch_button_install(&button_global_config));
+    //ESP_LOGI(TAG, "Touch button installed");
+
+    //for (int i = 0; i < TOUCH_BUTTON_NUM; i++) {
+    //    touch_button_config_t button_config = {
+    //        .channel_num = button_channel_array[i],
+    //        .channel_sens = button_channel_sens_array[i]
+    //    };
+    //    /* Create Touch buttons */
+    //    ESP_ERROR_CHECK(touch_button_create(&button_config, &button_handle[i]));
+    //    /* Subscribe touch button events (On Press, On Release, On LongPress) */
+    //    ESP_ERROR_CHECK(touch_button_subscribe_event(button_handle[i],
+    //                                                 TOUCH_ELEM_EVENT_ON_PRESS | TOUCH_ELEM_EVENT_ON_RELEASE | TOUCH_ELEM_EVENT_ON_LONGPRESS,
+    //                                                 (void *)button_channel_array[i])); 
+    //ESP_ERROR_CHECK(touch_button_set_dispatch_method(button_handle[i], TOUCH_ELEM_DISP_EVENT));
+    //ESP_LOGI(TAG, "Touch buttons created");
+
+    //touch_element_start();
+    //ESP_LOGI(TAG, "Touch element library start");
+    //start gpio task
+    //xTaskCreate(gpio_task_example, "gpio_task_example", 2048, NULL, 10, NULL);
+
+    //install gpio isr service
+    //gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
+    //hook isr handler for specific gpio pin
+    //gpio_isr_handler_add(TOUCH_000DEG, gpio_isr_handler, (void*) TOUCH_000DEG);
+    //hook isr handler for specific gpio pin
+    //gpio_isr_handler_add(TOUCH_120DEG, gpio_isr_handler, (void*) TOUCH_120DEG);
+
+//TOUCH_000DEG  1 // TOUCH1 IO1
+//TOUCH_120DEG  2 // TOUCH2 IO2
+//TOUCH_240DEG  3 // TOUCH3 IO3
+//TOUCH_OK      4 // TOUCH4 IO4
+	//esp_err_t ret = nvs_flash_init();
+	//if	(ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+	//	ESP_ERROR_CHECK(nvs_flash_erase());
+	//	ret = nvs_flash_init();
+	//}
+	//ESP_ERROR_CHECK(ret);
+	//s_evq=xQueueCreate(32, sizeof(hid_ev_t));
+	//nimble_hid_start(hid_cb);
+	slidedirection = 0; //static slide direction
+	previousposition = 0; //store last position
+}
+
+int input_get_event(ev_t *touchev) {
+	return xQueueReceive(s_evq, touchev, 0);
+}
+

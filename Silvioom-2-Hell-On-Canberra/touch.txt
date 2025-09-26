@@ -1,0 +1,13 @@
+=================================
+benchmark [CH 1]: 15500
+smooth    [CH 1]: 15501
+
+benchmark [CH 2]: 15260
+smooth    [CH 2]: 15260
+
+benchmark [CH 3]: 16371
+smooth    [CH 3]: 16371
+
+benchmark [CH 4]: 8589
+smooth    [CH 4]: 8590
+
