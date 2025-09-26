@@ -1,3 +1,35 @@
+Silvioom 2 Hell On Canberra
+===============================================
+Silvioom 2 is based off of Sprites awesome Doom Christmas Bauble here https://github.com/Spritetm/esp32c3-doom-bauble
+
+Flashing
+--------
+Install the esp32 idf tools https://github.com/espressif/esp-idf
+Connect the badge to a usb port
+Hold down the boot button and hit reset to get into the bootloader
+
+build the firmware with 
+```idf.py build```
+
+flash the firmware (change the port to match the detected serial on your machine)
+```idf.py -p /dev/ttyUSB0 flash``` 
+
+flash the doom image using flash-doom-wad.sh
+```./flash-doom-wad.sh```
+
+Hit reset and hopefully it'll run!
+
+Creating it
+-----------
+To create the Silvioom WAD, i used:
+Squashware DOOM to get a smaller wad to fit in the flash ROM
+https://github.com/fragglet/squashware
+
+And then ran the resulting WAD with the GbaWadUtil in this repo
+That needs to be compiled with Qt QMAKE
+
+Love to Kylie and Silvio, and all at Infosect!
+
 Doom on an ESP32-C3 based Christmas tree bauble
 ===============================================
 
